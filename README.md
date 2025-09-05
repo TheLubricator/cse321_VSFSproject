@@ -13,4 +13,4 @@ for builder-> file extensiion  must  be img. Also will not  overwrite if an  img
 for adder->Like  builder, CLI structure is strictly  enforced. Wont work if->file doesnt exist, input  image doesnt exist, input image same as output image, file size and/or name too large.
           Reads img, loads  it to memory, uses  necessary steps  to add file to root, then "writes everything to new image under output". 
           This implies, the image that  is updated is the output  image, and input image is  only accessed.  So,  to check for duplications, CLI command must take the  image written by adder  in previous run as input, and  oouput a different image file and  then check for duplication
-   time: 5/9/2025 7:44 PM-> incorrect  error handling for invalid  file extension fixed
+   <br>time: 5/9/2025 7:44 PM-> incorrect  error handling for invalid  file extension fixed
