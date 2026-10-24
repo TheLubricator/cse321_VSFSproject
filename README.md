@@ -1,132 +1,83 @@
-# cse321_VSFSproject_limitedAccess
+# VSFS: File System Image Builder and Adder
 
-## Overview
+Two command-line tools in C that create and modify a disk image for a small, VSFS-style file system. Built as a CSE321 course project at BRAC University (2025).
 
-This repository contains two C programs that work with a small custom filesystem image format (VSFS-style coursework skeleton):
+- **`mkfs_builder`** creates a new `.img` file system image with initialized metadata and a root directory.
+- **`mkfs_adder`** reads an existing image, adds one file to the root directory, and writes the result to a new image.
 
-- `mkfs_builder_skeleton.c`: creates a new `.img` filesystem image with initialized metadata and a root directory.
-- `mkfs_adder_skeleton.c`: reads an existing image, adds one file entry into the root directory, and writes a new output image.
+## On-disk layout
 
-The repository also includes sample text files (`file_2.txt`, `file_14.txt`, `file_23.txt`, `file_27.txt`) that can be used as input to the adder.
+The image consists of the following regions, defined as packed C structs (`superblock_t`, `inode_t`, `dirent64_t`):
 
-## Project Structure and Components
+| Region | Purpose |
+|---|---|
+| Superblock | File system geometry and metadata, with a checksum |
+| Inode bitmap | Tracks which inodes are free |
+| Data bitmap | Tracks which data blocks are free |
+| Inode table | Fixed-size inodes; the root directory is inode 0 |
+| Data blocks | File contents and directory entries |
 
-- `/home/runner/work/cse321_VSFSproject_limitedAccess/cse321_VSFSproject_limitedAccess/mkfs_builder_skeleton.c`
-  - Defines packed on-disk structs: `superblock_t`, `inode_t`, `dirent64_t`.
-  - Initializes CRC/checksum helpers (`crc32`, `inode_crc_finalize`, `dirent_checksum_finalize`).
-  - Validates CLI format and basic numeric ranges.
-  - Creates an in-memory image buffer, initializes:
-    - superblock
-    - inode bitmap
-    - data bitmap
-    - inode table (root inode)
-    - root directory entries (`.` and `..`)
-  - Writes the image to disk and runs read-back diagnostics.
+Details:
 
-- `/home/runner/work/cse321_VSFSproject_limitedAccess/cse321_VSFSproject_limitedAccess/mkfs_adder_skeleton.c`
-  - Uses the same on-disk struct layouts and checksum helpers.
-  - Validates CLI arguments and existence/separation of input/output files.
-  - Loads the input image into memory.
-  - Locates free inode/data blocks via bitmap scanning.
-  - Writes file content into allocated data blocks and creates a root dirent.
-  - Updates root inode metadata and superblock mtime/checksum.
-  - Writes the modified image to a *new* output image file.
+- The root directory is created with `.` and `..` entries.
+- CRC32 checksums protect the superblock, inodes, and directory entries.
+- Each file may use up to 12 direct blocks.
+- File names in directory entries are limited to 58 characters.
 
-## Core Workflow / Data Flow
+## Build
 
-1. Build both binaries.
-2. Create a fresh filesystem image with `mkfs_builder_skeleton.c`.
-3. Add a file with `mkfs_adder_skeleton.c`, producing a new image.
-4. For additional additions, use the previous output image as the next input image.
+No build system is required; `gcc` is enough (Linux or macOS):
 
-The adder does **not** modify the input image in place; it reads input and writes a separate output file.
-
-## Build and Run
-
-No build system (Makefile/CMake) is present. Use `gcc` directly.
-
-### Build
-
-```bash
+```
 gcc -O2 -std=c17 -Wall -Wextra mkfs_builder_skeleton.c -o mkfs_builder
 gcc -O2 -std=c17 -Wall -Wextra mkfs_adder_skeleton.c -o mkfs_adder
 ```
 
+## Usage
+
 ### Create an image
 
-```bash
+```
 ./mkfs_builder --image out.img --inode 128 --size-kib 1024
 ```
 
-Expected CLI format is strict:
-
-```text
---image <output image> --inode <inode size/count argument> --size-kib <size in KiB>
-```
-
-Constraints enforced by current code:
-
-- output name must end in `.img`
-- output image must not already exist
-- `--inode` value must be in `[128, 512]`
-- `--size-kib` must be in `[180, 4096]` and divisible by 4
+| Argument | Meaning | Constraint |
+|---|---|---|
+| `--image` | Output image path | Must end in `.img`; must not already exist |
+| `--inode` | Inode count | 128 to 512 |
+| `--size-kib` | Image size in KiB | 180 to 4096, divisible by 4 |
 
 ### Add a file
 
-```bash
+```
 ./mkfs_adder --input out.img --output out1.img --file file_14.txt
 ```
 
-Expected CLI format is strict:
+| Argument | Meaning | Constraint |
+|---|---|---|
+| `--input` | Existing image | Must exist |
+| `--output` | New image to write | Must end in `.img`; must not exist; must differ from `--input` |
+| `--file` | File to add | Must exist; must fit in 12 direct blocks; name at most 58 characters |
 
-```text
---input <input image> --output <output image> --file <file path>
-```
+The adder never modifies the input image in place. To add several files, use each output image as the next input. Adding a file whose name already exists in the root directory is rejected.
 
-Constraints enforced by current code:
+Both tools enforce the exact argument format and exit with an error message on any violation.
 
-- output name must end in `.img`
-- input image must exist
-- file to add must exist
-- input and output image paths must differ
-- output image must not already exist
-- file must fit within 12 direct blocks
-- filename stored in dirent is limited to 58 chars
-- duplicate root-level names are rejected
+### Sample files
 
-> Important: duplicate checking and filename-length checks use the raw `--file` argument string. Passing a long absolute path may fail filename-length validation even if the basename is short.
+`file_2.txt`, `file_14.txt`, `file_23.txt`, and `file_27.txt` are small inputs for trying the adder.
 
-## Dependencies and Environment
+## How the adder works
 
-Based on includes and syscalls used by the source:
+1. Validate the arguments and check that the input exists and the output does not.
+2. Load the whole input image into memory.
+3. Scan the bitmaps to find a free inode and enough free data blocks.
+4. Write the file contents into the allocated blocks and create a root directory entry.
+5. Update the root inode and the superblock (modification time and checksum).
+6. Write the modified image to the new output path.
 
-- C17 compiler (tested via `gcc`)
-- POSIX-style runtime APIs (`unistd.h`, `fcntl.h`, `open`, `write`, `access`, etc.)
-- Standard C library headers (`stdio.h`, `stdlib.h`, `string.h`, `stdint.h`, `time.h`, ...)
+## Limitations and future work
 
-This is expected to run in Unix-like environments (Linux/macOS). No Windows-specific build/run path is provided in code.
-
-## Readiness / Current Status (Evidence-Based)
-
-### Implemented and working (manually verified)
-
-- Both programs compile successfully with the commands above.
-- Builder creates an image and prints diagnostic verification output.
-- Adder can add a sample text file and emit a new output image.
-- Adder rejects duplicate root filenames when rerun against a previously updated image.
-
-### Known issues / incompleteness observed in current code
-
-- Compilation emits warnings in both C files (unused variables, unchecked `write` return values, and a `printf` format mismatch in adder CLI error path).
-- No automated test suite, CI config, or build automation is present in the repository.
-- Root directory handling appears limited to entries in a single root data block (no directory growth logic implemented).
-- Error handling is partial in places (some resources and return values are not fully checked).
-- Filenames are taken directly from `--file` argument instead of normalized basename.
-
-Given the above, the project appears to be a **functional coursework prototype/skeleton**, not production-ready filesystem tooling.
-
-## Testing and Development Notes
-
-- There are no repository tests to run.
-- Validation currently depends on manual CLI execution and printed diagnostics.
-- If this project is extended, adding a build script and automated tests for CLI validation, image consistency, and edge cases would improve confidence.
+- The root directory is limited to the entries that fit in one data block; directory growth is not implemented.
+- There is no automated test suite or CI; testing so far has been manual.
+- Possible additions: subdirectories, deleting and listing files, and an image consistency checker.
