@@ -11,26 +11,28 @@ The image consists of the following regions, defined as packed C structs (`super
 
 | Region | Purpose |
 |---|---|
-| Superblock | File system geometry and metadata, with a checksum |
+| Superblock | Magic number, version, block size, region offsets, and a CRC32 checksum |
 | Inode bitmap | Tracks which inodes are free |
 | Data bitmap | Tracks which data blocks are free |
-| Inode table | Fixed-size inodes; the root directory is inode 0 |
+| Inode table | 128-byte inodes; the root directory is inode 1 (the first table slot) |
 | Data blocks | File contents and directory entries |
 
 Details:
 
+- The block size is 4096 bytes. Directory entries are 64 bytes each.
 - The root directory is created with `.` and `..` entries.
-- CRC32 checksums protect the superblock, inodes, and directory entries.
+- CRC32 checksums protect the superblock and each inode; each directory entry carries a one-byte XOR checksum.
 - Each file may use up to 12 direct blocks.
 - File names in directory entries are limited to 58 characters.
+- The adder checks the image's magic number, version, and block size before modifying anything.
 
 ## Build
 
 No build system is required; `gcc` is enough (Linux or macOS):
 
 ```
-gcc -O2 -std=c17 -Wall -Wextra mkfs_builder_skeleton.c -o mkfs_builder
-gcc -O2 -std=c17 -Wall -Wextra mkfs_adder_skeleton.c -o mkfs_adder
+gcc -O2 -std=c17 -Wall -Wextra mkfs_builder.c -o mkfs_builder
+gcc -O2 -std=c17 -Wall -Wextra mkfs_adder.c -o mkfs_adder
 ```
 
 ## Usage
@@ -76,8 +78,11 @@ Both tools enforce the exact argument format and exit with an error message on a
 5. Update the root inode and the superblock (modification time and checksum).
 6. Write the modified image to the new output path.
 
+## Testing
+
+`bash tests/run_tests.sh` builds both tools and checks the resulting images with `tests/verify.py`, which validates the superblock CRC32, inode CRC32s, directory entry checksums, and bitmap bits, and confirms that file contents round-trip. Cases covered: 20 files added in sequence, multi-block files, the 12-block limit (12 blocks accepted, 13 rejected), base-name storage, 58 versus 59 character names, and duplicate names.
+
 ## Limitations and future work
 
 - The root directory is limited to the entries that fit in one data block; directory growth is not implemented.
-- There is no automated test suite or CI; testing so far has been manual.
 - Possible additions: subdirectories, deleting and listing files, and an image consistency checker.
